@@ -55,14 +55,16 @@
           (,x-preprocessor-regexp . font-lock-preprocessor-face)
           (,x-keywords-regexp . font-lock-keyword-face))))
 
-;;;###autoload
-(add-to-list 'auto-mode-alist '("\\.mfk\\'" . millfork-mode))
 
+;;;###autoload
 (define-derived-mode millfork-mode prog-mode "Millfork mode"
   "Major mode for editing Millfork"
 
   (setq font-lock-defaults '((millfork-font-lock-keywords))))
 
+
+;;;###autoload
+(add-to-list 'auto-mode-alist '("\\.mfk\\'" . millfork-mode))
 
 (provide 'millfork-mode)
 ;;; millfork-mode.el ends here
