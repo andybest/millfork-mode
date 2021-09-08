@@ -25,7 +25,7 @@
                            "to" "until" "downto" "parallelto" "parallel" "until"
                            "default" "break" "continue" "fast" "file" "defaultz"
                            "scr" "scrz" "import" "segment" "array" "struct"
-                           "union" "enum" "alias" "inline"))
+                           "union" "enum" "alias" "inline" "const"))
              (x-types '("byte" "ubyte" "sbyte" "word" "long" "pointer" "void"
                         "bool" "set_carry" "set_zero" "set_overflow"
                         "set_negative" "clear_carry" "clear_zero"
@@ -55,6 +55,16 @@
           (,x-preprocessor-regexp . font-lock-preprocessor-face)
           (,x-keywords-regexp . font-lock-keyword-face))))
 
+(defconst millfork-mode-syntax-table
+  (let ((st (make-syntax-table)))
+    (modify-syntax-entry ?\{ "(}" st)
+    (modify-syntax-entry ?\} "){" st)
+    (modify-syntax-entry ?\" "\"" st)
+
+    ; Comments
+    (modify-syntax-entry ?\/ ". 12b" st)
+    (modify-syntax-entry ?\n "> b" st)
+    st))
 
 ;;;###autoload
 (define-derived-mode millfork-mode prog-mode "Millfork mode"
