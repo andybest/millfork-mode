@@ -8,7 +8,7 @@
 ;; Version: 0.0.1
 ;; Keywords: languages, millfork, 6502
 ;; Homepage: https://github.com/andybest/millfork-mode
-;; Package-Requires: ((emacs "24"))
+;; Package-Requires: ((emacs "24.3"))
 ;;
 ;; This file is not part of GNU Emacs.
 ;;
@@ -18,6 +18,18 @@
 ;; programmin language
 ;;
 ;;; Code:
+
+(require 'smie)
+
+(defgroup millfork nil
+  "Configuration for millfork-mode."
+  :group 'languages
+  :prefix "millfork-")
+
+(defcustom millfork-indent-offset 4
+  "Defines the indentation offser for Millfork code."
+  :group 'millfork
+  :type 'integerp)
 
 (defconst millfork-font-lock-keywords
       (let* (
@@ -57,20 +69,114 @@
 
 (defconst millfork-mode-syntax-table
   (let ((st (make-syntax-table)))
-    (modify-syntax-entry ?\{ "(}" st)
-    (modify-syntax-entry ?\} "){" st)
+    ;(modify-syntax-entry ?\{ "(}" st)
+    ;(modify-syntax-entry ?\} "){" st)
+
     (modify-syntax-entry ?\" "\"" st)
+
+    (modify-syntax-entry ?_ "w" st)
 
     ; Comments
     (modify-syntax-entry ?\/ ". 12b" st)
     (modify-syntax-entry ?\n "> b" st)
     st))
 
+(defconst millfork-smie-grammar
+  (smie-prec2->grammar
+   (smie-merge-prec2s
+    (smie-bnf->prec2
+     '(
+       (id)
+
+       (func (id "{" insts "}"))
+       (func-call (id "(" func-params ")"))
+       (func-param (exp))
+       (func-params (func-param "," func-param))
+
+       (insts (inst) (inst ";" inst))
+       (inst (func-call)
+             (if-clause))
+
+       (exp (op-exp))
+       (op-exp (exp "OP" exp))
+
+       (conditional (exp))
+       (if-body ("if" conditional "{" insts "}"))
+       (if-else-if (if-body) (if-else-if "else" if-else-if))
+       (if-clause (if-else-if))
+
+       '((nonassoc "{") (assoc ",") (assoc ";") (assoc ":"))
+       '((assoc "OP"))))
+
+    (smie-precs->prec2
+     '(
+       (left "*" "$*" "/" "%%")
+       (left "+" "$+" "-" "$-" "|" "&" "^" ">>" "$>>" "<<" "$<<" ">>>>")
+       (nonassoc ":")
+       (nonassoc "==" "!=" "<" ">" "<=" ">=")
+       (nonassoc "&&")
+       (nonassoc "||"))))))
+
+(defvar millfork-smie--operators-regexp
+  (regexp-opt '("->" "*" "$*" "/" "%%" "+" "$+" "-" "$-" "|" "&" "^" ">>" "$>>"
+                "<<" "$<<" ">>>>" ":" "==" "!=" "<" ">" "<=" ">=" "&&" "||")))
+
+(defun millfork-smie--implicit-semicolon-p ()
+  "Check whether the current statement has an implicit semicolon."
+  (save-excursion
+    (not (or (memq (char-before) '(?\{ ?\[ ?\,))
+             (looking-back millfork-smie--operators-regexp (- (point) 3) t)))))
+
+(defun millfork-smie--forward-token ()
+  "Forward token function for smie lexer."
+  (cond
+   ((and (looking-at "\n") (millfork-smie--implicit-semicolon-p))
+    (if (eolp) (forward-char 1) (forward-comment 1))
+    ";")
+   ((looking-at "{") (forward-char 1) "{")
+   ((looking-at "}") (forward-char 1) "}")
+   ((looking-at millfork-smie--operators-regexp) ; Replace operators with "OP" token
+    (goto-char (match-end 0)) "OP")
+   (t (smie-default-forward-token))))
+
+(defun millfork-smie--backward-token ()
+  "Backward token function for smie."
+  (let ((pos (point)))
+    (forward-comment (- (point)))
+    (cond
+     ((and (> pos (line-end-position))
+           (millfork-smie--implicit-semicolon-p))
+      ";")
+     ((eq (char-before) ?\{) (backward-char 1) "{")
+     ((eq (char-before) ?\}) (backward-char 1) "}")
+     ((looking-back millfork-smie--operators-regexp (- (point) 3) t)
+      (goto-char (match-beginning 0)) "op")
+     (t (smie-default-backward-token)))))
+
+(defun millfork-smie-rules (kind token)
+  "Smie indentation rules."
+  (pcase (cons kind token)
+    (`(:elem . basic) millfork-indent-offset)))
+
 ;;;###autoload
 (define-derived-mode millfork-mode prog-mode "Millfork mode"
   "Major mode for editing Millfork"
 
-  (setq font-lock-defaults '((millfork-font-lock-keywords))))
+  :group 'millfork
+  :syntax-table millfork-mode-syntax-table
+
+  (setq font-lock-defaults '((millfork-font-lock-keywords)))
+
+  (setq-local comment-start "// ")
+  (setq-local comment-end "")
+  (setq-local tab-width millfork-indent-offset)
+  (setq-local indent-tabs-mode nil)
+
+  (setq-local electric-indent-chars
+              (append '(?. ?, ?: ?\) ?\] ?\}) electric-indent-chars))
+  (smie-setup millfork-smie-grammar 'millfork-smie-rules
+              :forward-token 'millfork-smie--forward-token
+              :backward-token 'millfork-smie--backward-token))
 
 
 ;;;###autoload
