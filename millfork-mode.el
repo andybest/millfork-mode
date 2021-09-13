@@ -81,139 +81,86 @@
     (modify-syntax-entry ?\n "> b" st)
     st))
 
-(defconst millfork-smie-grammar
-  (smie-prec2->grammar
-   (smie-bnf->prec2
-    '(
-      (id)
-      (inst ("begin" insts "end")
-            ("if" exp "then" inst "else" inst)
-            (id ":=" exp)
-            (exp))
-      (insts (insts ";" insts) (inst))
-      (exp (exp "+" exp)
-           (exp "*" exp)
-           ("(" exps ")"))
-      (exps (exps "," exps) (exp)))
-    '((assoc ";"))
-    '((assoc ","))
-    '((assoc "+") (assoc "-")))))
-   ;; (smie-merge-prec2s
-   ;;  (smie-bnf->prec2
-   ;;   '(
-   ;;     (id)
+;; ----- Intentation -----
 
-   ;;     (decl-exp (id))
+(defun millfork--current-line ()
+  "Return the text in the current line."
+  (buffer-substring-no-properties
+   (line-beginning-position) (line-end-position)))
 
-   ;;     (assign-exp (decl-exp) (id "=" exp))
-   ;;     (decl (id ";" id))
+(defun millfork--effective-paren-depth (pos)
+  "Calculate the paren depth of position POS, ignoring repeated parens on the same line."
+  (let ((paren-depth 0)
+        (syntax (syntax-ppss pos))
+        (current-line (line-number-at-pos pos)))
+    (save-excursion
+      ; For each partial s-expression (paren enclosed expression)
+      (while (> (nth 0 syntax) 0)
+        ; Go to the character after the opening paren
+        (goto-char (nth 1 syntax))
 
-   ;;     (func (id "{" insts "}"))
-   ;;     (func-call (id "(" func-params ")"))
-   ;;     (func-param (exp))
-   ;;     (func-params (func-param "," func-param))
+        ; If the paren is on a new line, increment the current paren depth.
+        (let ((new-line (line-number-at-pos (point))))
+          (unless (= new-line current-line)
+            (setq paren-depth (1+ paren-depth))
+            (setq current-line new-line)))
 
-   ;;     (insts (inst) (inst ";" inst))
-   ;;     (inst
-   ;;      (decl)
-   ;;      (func-call)
-   ;;      (if-clause))
+        (setq syntax (syntax-ppss (point)))))
+    paren-depth))
 
-   ;;     (exp (op-exp))
-   ;;     (op-exp (exp "OP" exp))
+(defun millfork--remove-comments (src)
+  "Remove all comments from SRC."
+  (replace-regexp-in-string (rx "//" (* not-newline)) "" src))
 
-   ;;     (conditional (exp))
-   ;;     (if-body ("if" conditional "{" insts "}"))
-   ;;     (if-else-if (if-body) (if-else-if "else" if-else-if))
-   ;;     (if-clause (if-else-if)))
+(defun millfork-indent-line ()
+  "Indent the current line."
+  (interactive)
+  (let* ((point-offset (- (current-column) (current-indentation)))
+         (syntax-bol (syntax-ppss (line-beginning-position)))
+         (current-paren-depth (millfork--effective-paren-depth (line-beginning-position)))
+         (current-paren-pos (nth 1 syntax-bol))
+         (text-after-paren
+          (when current-paren-pos
+            (save-excursion
+              (goto-char current-paren-pos)
+              (s-trim
+               (millfork--remove-comments
+                (buffer-substring
+                 (1+ current-paren-pos)
+                 (line-end-position)))))))
+         (current-line (s-trim (millfork--current-line)))
+         has-closing-paren)
+                                        ; Unindent if the like starts a closing paren/brace
+    (when (or (s-starts-with-p "}" current-line)
+              (s-starts-with-p ")" current-line)
+              (s-starts-with-p "]" current-line))
+      (setq has-closing-paren t)
+      (setq current-paren-depth (1- current-paren-depth)))
 
-   ;;     '((nonassoc "{") (assoc ",") (assoc ";"))
-   ;;     '((assoc "OP"))
-   ;;     '((assoc "else")))
+                                        ; Handle a negative paren depth (in the case of unbalance params)
+    (when (< current-paren-depth 0)
+      (setq current-paren-depth 0))
 
-   ;;  (smie-precs->prec2
-   ;;   '(
-   ;;     (left "*" "$*" "/" "%%")
-   ;;     (left "+" "$+" "-" "$-" "|" "&" "^" ">>" "$>>" "<<" "$<<" ">>>>")
-   ;;     (nonassoc ":")
-   ;;     (nonassoc "==" "!=" "<" ">" "<=" ">=")
-   ;;     (nonassoc "&&")
-   ;;     (nonassoc "||"))))))
-
-(defvar millfork-smie--operators-regexp
-  (regexp-opt '("->" "*" "$*" "/" "%%" "+" "$+" "-" "$-" "|" "&" "^" ">>" "$>>"
-                "<<" "$<<" ">>>>" ":" "==" "!=" "<" ">" "<=" ">=" "&&" "||")))
-
-(defun millfork-smie--implicit-semicolon-p ()
-  "Check whether the current statement has an implicit semicolon."
-  (save-excursion
-    (not (or (memq (char-before) '(?\{ ?\[ ?\,))
-             (looking-back millfork-smie--operators-regexp (- (point) 3) t)))))
-
-(defun millfork-smie--forward-token ()
-  "Forward token function for smie lexer."
-  (cond
-   ((and (looking-at "\n") (millfork-smie--implicit-semicolon-p))
-    (if (eolp) (forward-char 1) (forward-comment 1))
-    ";")
-   ;; ((looking-at "{") (forward-char 1) "{")
-   ;; ((looking-at "}") (forward-char 1) "}")
-   ((looking-at millfork-smie--operators-regexp) ; Replace operators with "OP" token
-    (goto-char (match-end 0)) "OP")
-   (t (smie-default-forward-token))))
-
-(defun millfork-smie--backward-token ()
-  "Backward token function for smie."
-  (let ((pos (point)))
-    (forward-comment (- (point)))
     (cond
-     ((and (> pos (line-end-position))
-           (millfork-smie--implicit-semicolon-p))
-      (message "implicit semi")
-      ";")
-     ;; ((eq (char-before) ?\{) (backward-char 1) "{")
-     ;; ((eq (char-before) ?\}) (backward-char 1) "}")
-     ((looking-back millfork-smie--operators-regexp (- (point) 3) t)
-      (goto-char (match-beginning 0)) "OP")
-     (t (smie-default-backward-token)))))
+     ((and (not (s-blank-str? text-after-paren))
+           (not has-closing-paren))
+      (let (open-paren-column)
+        (save-excursion
+          (goto-char current-paren-pos)
+          (setq open-paren-column (current-column)))
+        (indent-line-to (1+ open-paren-column))))
 
-(defun verbose-millfork-smie-rules (kind token)
-  "Verbose listing of rules."
-  (let ((value (millfork-smie-rules kind token)))
-    (message "%s '%s'; sibling-p:%s parent:%s hanging:%s == %s" kind token
-             (ignore-errors (smie-rule-sibling-p))
-             (ignore-errors smie--parent)
-             (ignore-errors (smie-rule-hanging-p))
-             value)
-    value))
+     (t
+      (let ((indent-level current-paren-depth))
+        (save-excursion
 
-(defun millfork-smie-rules (kind token)
-  "Smie indentation rules."
-  (pcase (cons kind token)
-    (`(:elem . basic) millfork-indent-offset)
-    (`(,_ . ",") (smie-rule-separator kind))
-    (`(:after . ":=") millfork-indent-offset)
-    (`(:before . ,(or `"begin" `"(" `"{"))
-     (if (smie-rule-hanging-p) (smie-rule-parent)))
-    (`(:before "if")
-     (and (not (smie-rule-bolp)) (smie-rule-prev-p "else")
-          (smie-rule-parent)))))
-  ;; (pcase (;; cons kind token)
-    ;; (`(:elem . basic) millfork-indent-offset)
+        ; Indent if a .methodCall
+          (when (s-starts-with-p "." current-line)
+            (setq indent-level (1+ indent-level))))
+        (indent-line-to (* millfork-indent-offset indent-level)))))
 
-    ;; (`(:after . "{")
-    ;;  (if (smie-rule-parent-p "switch")
-    ;;      (smie-rule-parent 0)))
-
-    ;; (`(:before . ";")
-    ;;  (if (smie-rule-parent-p "case" "default")
-    ;;      (smie-rule-parent millfork-indent-offset)))
-
-    ;; (`(:before . "if")
-    ;;  (if (smie-rule-prev-p "else")
-    ;;      (if (smie-rule-parent-p "{")
-    ;;          millfork-indent-offset
-           ;; (smie-rule-parent))))))
+    (when (>= point-offset 0)
+      (move-to-column (+ (current-indentation) point-offset)))))
 
 ;;;###autoload
 (define-derived-mode millfork-mode prog-mode "Millfork mode"
@@ -227,14 +174,10 @@
   (setq-local comment-start "// ")
   (setq-local comment-end "")
   (setq-local tab-width millfork-indent-offset)
-  (setq-local indent-tabs-mode nil)
+  (setq-local indent-line-function #'millfork-indent-line)
 
   (setq-local electric-indent-chars
-              (append '(?. ?, ?: ?\) ?\] ?\}) electric-indent-chars))
-  (smie-setup millfork-smie-grammar 'verbose-millfork-smie-rules
-              :forward-fn 'millfork-smie--forward-token
-              :backward-fn 'millfork-smie--backward-token))
-
+              (append '(?. ?, ?: ?\) ?\] ?\}) electric-indent-chars)))
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.mfk\\'" . millfork-mode))
