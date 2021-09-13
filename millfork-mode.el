@@ -83,39 +83,62 @@
 
 (defconst millfork-smie-grammar
   (smie-prec2->grammar
-   (smie-merge-prec2s
-    (smie-bnf->prec2
-     '(
-       (id)
+   (smie-bnf->prec2
+    '(
+      (id)
+      (inst ("begin" insts "end")
+            ("if" exp "then" inst "else" inst)
+            (id ":=" exp)
+            (exp))
+      (insts (insts ";" insts) (inst))
+      (exp (exp "+" exp)
+           (exp "*" exp)
+           ("(" exps ")"))
+      (exps (exps "," exps) (exp)))
+    '((assoc ";"))
+    '((assoc ","))
+    '((assoc "+") (assoc "-")))))
+   ;; (smie-merge-prec2s
+   ;;  (smie-bnf->prec2
+   ;;   '(
+   ;;     (id)
 
-       (func (id "{" insts "}"))
-       (func-call (id "(" func-params ")"))
-       (func-param (exp))
-       (func-params (func-param "," func-param))
+   ;;     (decl-exp (id))
 
-       (insts (inst) (inst ";" inst))
-       (inst (func-call)
-             (if-clause))
+   ;;     (assign-exp (decl-exp) (id "=" exp))
+   ;;     (decl (id ";" id))
 
-       (exp (op-exp))
-       (op-exp (exp "OP" exp))
+   ;;     (func (id "{" insts "}"))
+   ;;     (func-call (id "(" func-params ")"))
+   ;;     (func-param (exp))
+   ;;     (func-params (func-param "," func-param))
 
-       (conditional (exp))
-       (if-body ("if" conditional "{" insts "}"))
-       (if-else-if (if-body) (if-else-if "else" if-else-if))
-       (if-clause (if-else-if))
+   ;;     (insts (inst) (inst ";" inst))
+   ;;     (inst
+   ;;      (decl)
+   ;;      (func-call)
+   ;;      (if-clause))
 
-       '((nonassoc "{") (assoc ",") (assoc ";") (assoc ":"))
-       '((assoc "OP"))))
+   ;;     (exp (op-exp))
+   ;;     (op-exp (exp "OP" exp))
 
-    (smie-precs->prec2
-     '(
-       (left "*" "$*" "/" "%%")
-       (left "+" "$+" "-" "$-" "|" "&" "^" ">>" "$>>" "<<" "$<<" ">>>>")
-       (nonassoc ":")
-       (nonassoc "==" "!=" "<" ">" "<=" ">=")
-       (nonassoc "&&")
-       (nonassoc "||"))))))
+   ;;     (conditional (exp))
+   ;;     (if-body ("if" conditional "{" insts "}"))
+   ;;     (if-else-if (if-body) (if-else-if "else" if-else-if))
+   ;;     (if-clause (if-else-if)))
+
+   ;;     '((nonassoc "{") (assoc ",") (assoc ";"))
+   ;;     '((assoc "OP"))
+   ;;     '((assoc "else")))
+
+   ;;  (smie-precs->prec2
+   ;;   '(
+   ;;     (left "*" "$*" "/" "%%")
+   ;;     (left "+" "$+" "-" "$-" "|" "&" "^" ">>" "$>>" "<<" "$<<" ">>>>")
+   ;;     (nonassoc ":")
+   ;;     (nonassoc "==" "!=" "<" ">" "<=" ">=")
+   ;;     (nonassoc "&&")
+   ;;     (nonassoc "||"))))))
 
 (defvar millfork-smie--operators-regexp
   (regexp-opt '("->" "*" "$*" "/" "%%" "+" "$+" "-" "$-" "|" "&" "^" ">>" "$>>"
@@ -133,8 +156,8 @@
    ((and (looking-at "\n") (millfork-smie--implicit-semicolon-p))
     (if (eolp) (forward-char 1) (forward-comment 1))
     ";")
-   ((looking-at "{") (forward-char 1) "{")
-   ((looking-at "}") (forward-char 1) "}")
+   ;; ((looking-at "{") (forward-char 1) "{")
+   ;; ((looking-at "}") (forward-char 1) "}")
    ((looking-at millfork-smie--operators-regexp) ; Replace operators with "OP" token
     (goto-char (match-end 0)) "OP")
    (t (smie-default-forward-token))))
@@ -146,17 +169,51 @@
     (cond
      ((and (> pos (line-end-position))
            (millfork-smie--implicit-semicolon-p))
+      (message "implicit semi")
       ";")
-     ((eq (char-before) ?\{) (backward-char 1) "{")
-     ((eq (char-before) ?\}) (backward-char 1) "}")
+     ;; ((eq (char-before) ?\{) (backward-char 1) "{")
+     ;; ((eq (char-before) ?\}) (backward-char 1) "}")
      ((looking-back millfork-smie--operators-regexp (- (point) 3) t)
-      (goto-char (match-beginning 0)) "op")
+      (goto-char (match-beginning 0)) "OP")
      (t (smie-default-backward-token)))))
+
+(defun verbose-millfork-smie-rules (kind token)
+  "Verbose listing of rules."
+  (let ((value (millfork-smie-rules kind token)))
+    (message "%s '%s'; sibling-p:%s parent:%s hanging:%s == %s" kind token
+             (ignore-errors (smie-rule-sibling-p))
+             (ignore-errors smie--parent)
+             (ignore-errors (smie-rule-hanging-p))
+             value)
+    value))
 
 (defun millfork-smie-rules (kind token)
   "Smie indentation rules."
   (pcase (cons kind token)
-    (`(:elem . basic) millfork-indent-offset)))
+    (`(:elem . basic) millfork-indent-offset)
+    (`(,_ . ",") (smie-rule-separator kind))
+    (`(:after . ":=") millfork-indent-offset)
+    (`(:before . ,(or `"begin" `"(" `"{"))
+     (if (smie-rule-hanging-p) (smie-rule-parent)))
+    (`(:before "if")
+     (and (not (smie-rule-bolp)) (smie-rule-prev-p "else")
+          (smie-rule-parent)))))
+  ;; (pcase (;; cons kind token)
+    ;; (`(:elem . basic) millfork-indent-offset)
+
+    ;; (`(:after . "{")
+    ;;  (if (smie-rule-parent-p "switch")
+    ;;      (smie-rule-parent 0)))
+
+    ;; (`(:before . ";")
+    ;;  (if (smie-rule-parent-p "case" "default")
+    ;;      (smie-rule-parent millfork-indent-offset)))
+
+    ;; (`(:before . "if")
+    ;;  (if (smie-rule-prev-p "else")
+    ;;      (if (smie-rule-parent-p "{")
+    ;;          millfork-indent-offset
+           ;; (smie-rule-parent))))))
 
 ;;;###autoload
 (define-derived-mode millfork-mode prog-mode "Millfork mode"
@@ -174,9 +231,9 @@
 
   (setq-local electric-indent-chars
               (append '(?. ?, ?: ?\) ?\] ?\}) electric-indent-chars))
-  (smie-setup millfork-smie-grammar 'millfork-smie-rules
-              :forward-token 'millfork-smie--forward-token
-              :backward-token 'millfork-smie--backward-token))
+  (smie-setup millfork-smie-grammar 'verbose-millfork-smie-rules
+              :forward-fn 'millfork-smie--forward-token
+              :backward-fn 'millfork-smie--backward-token))
 
 
 ;;;###autoload
