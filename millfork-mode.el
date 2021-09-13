@@ -8,7 +8,7 @@
 ;; Version: 0.0.1
 ;; Keywords: languages, millfork, 6502
 ;; Homepage: https://github.com/andybest/millfork-mode
-;; Package-Requires: ((emacs "24.3"))
+;; Package-Requires: ((s "1.12.0") (emacs "24.3"))
 ;;
 ;; This file is not part of GNU Emacs.
 ;;
@@ -19,7 +19,7 @@
 ;;
 ;;; Code:
 
-(require 'smie)
+(require 's)
 
 (defgroup millfork nil
   "Configuration for millfork-mode."
@@ -69,11 +69,13 @@
 
 (defconst millfork-mode-syntax-table
   (let ((st (make-syntax-table)))
-    ;(modify-syntax-entry ?\{ "(}" st)
-    ;(modify-syntax-entry ?\} "){" st)
+    ; Treat braces as parens so we can (ab)use syntax-ppss for indentation
+    (modify-syntax-entry ?\{ "($")
+    (modify-syntax-entry ?\} ")^")
 
     (modify-syntax-entry ?\" "\"" st)
 
+    ; Treat underscores as "word" characters
     (modify-syntax-entry ?_ "w" st)
 
     ; Comments
@@ -177,7 +179,7 @@
   (setq-local indent-line-function #'millfork-indent-line)
 
   (setq-local electric-indent-chars
-              (append '(?. ?, ?: ?\) ?\] ?\}) electric-indent-chars)))
+              (append "{}[]();,:" electric-indent-chars)))
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.mfk\\'" . millfork-mode))
