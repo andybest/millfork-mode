@@ -69,16 +69,19 @@
 
 (defconst millfork-mode-syntax-table
   (let ((st (make-syntax-table)))
-    ; Treat braces as parens so we can (ab)use syntax-ppss for indentation
+    (modify-syntax-entry ?\{ "(}" st)
+    (modify-syntax-entry ?\} "){" st)
+
+                                        ; Treat braces as parens so we can (ab)use syntax-ppss for indentation
     (modify-syntax-entry ?\{ "($")
     (modify-syntax-entry ?\} ")^")
 
     (modify-syntax-entry ?\" "\"" st)
 
-    ; Treat underscores as "word" characters
+                                        ; Treat underscores as "word" characters
     (modify-syntax-entry ?_ "w" st)
 
-    ; Comments
+                                        ; Comments
     (modify-syntax-entry ?\/ ". 12b" st)
     (modify-syntax-entry ?\n "> b" st)
     st))
@@ -96,12 +99,12 @@
         (syntax (syntax-ppss pos))
         (current-line (line-number-at-pos pos)))
     (save-excursion
-      ; For each partial s-expression (paren enclosed expression)
+                                        ; For each partial s-expression (paren enclosed expression)
       (while (> (nth 0 syntax) 0)
-        ; Go to the character after the opening paren
+                                        ; Go to the character after the opening paren
         (goto-char (nth 1 syntax))
 
-        ; If the paren is on a new line, increment the current paren depth.
+                                        ; If the paren is on a new line, increment the current paren depth.
         (let ((new-line (line-number-at-pos (point))))
           (unless (= new-line current-line)
             (setq paren-depth (1+ paren-depth))
@@ -156,7 +159,7 @@
       (let ((indent-level current-paren-depth))
         (save-excursion
 
-        ; Indent if a .methodCall
+                                        ; Indent if a .methodCall
           (when (s-starts-with-p "." current-line)
             (setq indent-level (1+ indent-level))))
         (indent-line-to (* millfork-indent-offset indent-level)))))
