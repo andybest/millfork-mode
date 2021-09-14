@@ -77,6 +77,7 @@
     (modify-syntax-entry ?\} ")^")
 
     (modify-syntax-entry ?\" "\"" st)
+    (modify-syntax-entry ?\' "\"" st)
 
                                         ; Treat underscores as "word" characters
     (modify-syntax-entry ?_ "w" st)
