@@ -182,19 +182,16 @@
   (setq-local indent-line-function #'millfork-indent-line)
 
   (setq-local electric-indent-chars
-              (append "{}[]();,:" electric-indent-chars)))
+              (append "{}[]();,:" electric-indent-chars))
+  
+  (add-to-list 'compilation-error-regexp-alist 'millfork)
+  (add-to-list 'compilation-error-regexp-alist-alist
+               '(millfork
+                   "\\(?:ERROR\\|WARNIN\\(G\\)\\|INF\\(O\\)\\)\\: (\\(.*\\)\\:\\([0-9]+\\)\\:\\([0-9]+\\)) \\(.*\\)" 3 4 5 (1 . 2))))
+
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.mfk\\'" . millfork-mode))
-
-;;;###autoload
-(add-to-list 'compilation-error-regexp-alist 'millfork)
-
-;;;###autoload
-(add-to-list 'compilation-error-regexp-alist-alist
-             '(millfork
-               "\\(?:ERROR\\|WARNIN\\(G\\)\\|INF\\(O\\)\\)\\: (\\(.*\\)\\:\\([0-9]+\\)\\:\\([0-9]+\\)) \\(.*\\)" 3 4 5 (1 . 2)))
-
 
 (provide 'millfork-mode)
 ;;; millfork-mode.el ends here
